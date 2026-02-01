@@ -1,5 +1,9 @@
 # MTO-Image-Regression
-Image Regression Models on Meteorological Data
+This project is a Deep Learning framework designed to predict renewable power generation (MW) by analyzing spatial meteorological data from the ERA5 dataset. It processes key weather variables—such as wind speed, direction, and temperature at various atmospheric altitudes—into standardized 3D grids.
+
+![Model Architecture](assets/architecture.jpg)
+
+A Convolutional Neural Network (CNN) then scans these grids to identify complex local weather patterns (like pressure gradients or wind fronts) that directly influence energy production. The system has been refactored from experimental research scripts into a modular Object-Oriented Python application, cleanly separating data engineering, model definition, and training logic to ensure scalability and reproducibility.
 
 ## 📂 Directory Structure
 
