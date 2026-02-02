@@ -34,8 +34,8 @@ Installation
 
 Clone the repository:
 ```Bash
-git clone https://github.com/your-username/meteo-power-prediction.git
-cd meteo-power-prediction
+git clone https://github.com/zereaykut/MTO-Image-Regression.git
+cd MTO-Image-Regression
 ```
 Install dependencies:
 ```Bash
