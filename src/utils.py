@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score, mean_absolute_percentage_error
 from datetime import datetime
 
 # --- 1. Reusable Logging Mechanism ---
@@ -40,7 +40,7 @@ class Config:
     """Central configuration for file paths and parameters."""
     
     # Paths
-    MAIN_DATA_PATH = "/home/spidy/Projects/Data/model_data"
+    MAIN_DATA_PATH = "./data"
     OUTPUT_DIR = "./outputs"
     LOG_DIR = "./logs"
     CHECKPOINT_DIR = "../data/models" # Directory for saving weights
@@ -60,13 +60,15 @@ class Config:
     
     # Feature List
     PARAMS_LIST = [
-        "u1000hPa", "u950hPa", 
-        "v1000hPa", "v950hPa", 
-        "t1000hPa", "t950hPa", 
-        "ws1000hPa", "ws950hPa",
-        "wd1000hPa", "wd950hPa",
-        "t1000hPa_latitude_differentiate", "t1000hPa_longitude_differentiate",
-        "t950hPa_latitude_differentiate", "t950hPa_longitude_differentiate",
+        # "u1000hPa", "u950hPa", 
+        # "v1000hPa", "v950hPa", 
+        # "t1000hPa", "t950hPa", 
+        # "ws1000hPa", "ws950hPa",
+        # "wd1000hPa", "wd950hPa",
+        # "t1000hPa_latitude_differentiate", "t1000hPa_longitude_differentiate",
+        # "t950hPa_latitude_differentiate", "t950hPa_longitude_differentiate",
+        "u10", "v10", "t2m",
+        "ws10", "wd10",
     ]
 
 # --- 3. Data Loading ---
@@ -217,3 +219,93 @@ class ResultManager:
         plt.close()
         
         return csv_path
+
+    def save_monthly_metrics(self, y_true, y_pred, dates):
+        """Calculates metrics for each month separately using hourly data, and saves to CSV."""
+        # Create DataFrame with hourly data and datetime index
+        df = pd.DataFrame({'Real': y_true.flatten(), 'Predicted': y_pred.flatten()}, index=dates)
+        
+        # Group by Year and Month
+        grouped = df.groupby([df.index.year, df.index.month])
+        
+        monthly_metrics_list = []
+        
+        for (year, month), group in grouped:
+            # Extract hourly true and predicted values for this specific month
+            y_true_m = group['Real'].values
+            y_pred_m = group['Predicted'].values
+            
+            # Skip if the group is empty (edge case)
+            if len(y_true_m) == 0:
+                continue
+                
+            # Calculate Metrics for the month
+            rmse = np.sqrt(mean_squared_error(y_true_m, y_pred_m))
+            mae = mean_absolute_error(y_true_m, y_pred_m)
+            
+            # Handle edge cases where R2 might be undefined if there's no variance in y_true
+            if len(y_true_m) > 1:
+                r2 = r2_score(y_true_m, y_pred_m)
+            else:
+                r2 = float('nan')
+                
+            mape = mean_absolute_percentage_error(y_true_m, y_pred_m)
+            
+            # Append to our list
+            monthly_metrics_list.append({
+                'Year': int(year),
+                'Month': int(month),
+                'Date_Label': f"{year}-{month:02d}", # Helper column for easy reading
+                'RMSE': float(rmse),
+                'MAE': float(mae),
+                'R2': float(r2),
+                'MAPE': float(mape)
+            })
+        
+        # Convert the list of dictionaries to a DataFrame
+        metrics_df = pd.DataFrame(monthly_metrics_list)
+        
+        # Save to CSV
+        path = os.path.join(self.cfg.OUTPUT_DIR, "monthly_metrics.csv")
+        metrics_df.to_csv(path, index=False)
+        
+        # Return the metrics as a dictionary for logging purposes
+        return metrics_df.to_dict(orient='records')
+
+    def plot_hourly_by_month(self, y_true, y_pred, dates):
+        """Generates and saves hourly real vs predicted line plots for each month."""
+        # Create the specific directory for these plots inside OUTPUT_DIR
+        plot_dir = os.path.join(self.cfg.OUTPUT_DIR, "hourly_plots_by_month")
+        os.makedirs(plot_dir, exist_ok=True)
+        
+        # Create DataFrame with the date index
+        df = pd.DataFrame({'Real': y_true.flatten(), 'Predicted': y_pred.flatten()}, index=dates)
+        
+        # Group by Year and Month
+        grouped = df.groupby([df.index.year, df.index.month])
+        
+        for (year, month), group in grouped:
+            plt.figure(figsize=(15, 6))
+            
+            # Plot hourly data for the specific month
+            plt.plot(group.index, group['Real'], label='Real', alpha=0.8, color='#1f77b4', lw=1.5)
+            plt.plot(group.index, group['Predicted'], label='Predicted', alpha=0.8, color='#ff7f0e', linestyle='--', lw=1.5)
+            
+            month_str = f"{year}-{month:02d}"
+            plt.title(f'Hourly Generation: Real vs Predicted ({month_str})')
+            plt.xlabel('Date / Time')
+            plt.ylabel('Generation (MW)')
+            plt.legend()
+            plt.grid(True, linestyle='--', alpha=0.5)
+            
+            # Format X-axis for better readability
+            plt.xticks(rotation=45)
+            plt.tight_layout()
+            
+            # Save the plot
+            filename = f"hourly_{year}_{month:02d}.png"
+            path = os.path.join(plot_dir, filename)
+            plt.savefig(path)
+            plt.close() # Close figure to free memory
+            
+        return plot_dir

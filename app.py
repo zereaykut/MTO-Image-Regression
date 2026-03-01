@@ -26,8 +26,8 @@ def main():
         input_shape = X_train.shape[1:] 
         logger.info(f"Initializing ConvModel with input shape: {input_shape}")
         
-        # model_wrapper = ConvModel(input_shape=input_shape)
-        model_wrapper = ConvTransformerModel(input_shape=input_shape)
+        model_wrapper = ConvModel(input_shape=input_shape)
+        # model_wrapper = ConvTransformerModel(input_shape=input_shape)
         model_wrapper.model.summary(print_fn=logger.info)
         
         # Compile with weight decay
@@ -77,12 +77,22 @@ def main():
             y_test = y_test.flatten()
             y_pred = y_pred.flatten()
 
-            # Save Results
+            # --- NEW: Extract Dates for Monthly Aggregation ---
+            # Slice df_targets using the exact same TEST dates used in split_data
+            test_dates = df_targets.loc[cfg.TEST_START:cfg.TEST_END].index
+
+            # Save Standard Results
             results.save_predictions(y_test, y_pred)
             metrics = results.save_metrics(y_test, y_pred)
             plot_path = results.plot_scatter(y_test, y_pred)
             
+            # Save Monthly Results
+            monthly_metrics = results.save_monthly_metrics(y_test, y_pred, test_dates)
+            hourly_plots_dir = results.plot_hourly_by_month(y_test, y_pred, test_dates)
+            
             logger.info(f"Evaluation Complete. Metrics: {metrics}")
+            logger.info(f"Monthly Metrics: {monthly_metrics}")
+            logger.info(f"Hourly plots for each month saved to: {hourly_plots_dir}")
         else:
             logger.warning("Test set empty. Skipping evaluation.")
 

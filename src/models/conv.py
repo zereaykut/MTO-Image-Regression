@@ -1,5 +1,7 @@
+import os
 import tensorflow as tf
 from tensorflow.keras import layers, models, optimizers, losses
+from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
 from src.utils import get_logger
 
 class ConvModel:
@@ -41,9 +43,34 @@ class ConvModel:
             metrics=['mae', 'mse']
         )
 
-    def train(self, X_train, y_train, X_val, y_val, epochs=100, batch_size=32, callbacks=None):
-        """Trains the model with shuffle=False."""
+    def train(self, X_train, y_train, X_val, y_val, epochs=100, batch_size=32, callbacks=None, checkpoint_dir="../data/models"):
+        """Trains the model with shuffle=False and default callbacks."""
         self.logger.info("Starting model training...")
+        
+        # Default callbacks if none are provided
+        if callbacks is None:
+            if not os.path.exists(checkpoint_dir):
+                os.makedirs(checkpoint_dir)
+                
+            checkpoint_path = os.path.join(checkpoint_dir, "best_conv_model.weights.h5")
+            
+            callbacks = [
+                EarlyStopping(
+                    monitor='val_loss', 
+                    patience=10, 
+                    restore_best_weights=True,
+                    verbose=1
+                ),
+                ModelCheckpoint(
+                    filepath=checkpoint_path, 
+                    monitor='val_loss', 
+                    save_best_only=True, 
+                    save_weights_only=True,
+                    verbose=1
+                )
+            ]
+            self.logger.info(f"Using default callbacks. Checkpoints will be saved to: {checkpoint_path}")
+
         return self.model.fit(
             X_train, y_train,
             validation_data=(X_val, y_val),
