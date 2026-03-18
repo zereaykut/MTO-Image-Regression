@@ -40,7 +40,7 @@ class Config:
     """Central configuration for file paths and parameters."""
     
     # Paths
-    MAIN_DATA_PATH = "./data"
+    MAIN_DATA_PATH = "/home/spidy/Projects/Data/model_data_v2"
     OUTPUT_DIR = "./outputs"
     LOG_DIR = "./logs"
     CHECKPOINT_DIR = "../data/models" # Directory for saving weights
@@ -50,7 +50,7 @@ class Config:
     VAL_START = "2024-06-01"
     VAL_END = "2024-12-31"
     TEST_START = "2025-01-01"
-    TEST_END = "2025-10-07"
+    TEST_END = "2025-12-31"
     
     # Model Params
     BATCH_SIZE = 32
@@ -162,7 +162,7 @@ class ResultManager:
             os.makedirs(self.cfg.OUTPUT_DIR)
 
     def save_predictions(self, y_true, y_pred):
-        df = pd.DataFrame({'Real': y_true.flatten(), 'Predicted': y_pred.flatten()})
+        df = pd.DataFrame({"Real": y_true.flatten(), "Predicted": y_pred.flatten()})
         path = os.path.join(self.cfg.OUTPUT_DIR, "predictions.csv")
         df.to_csv(path, index=False)
         return path
@@ -173,25 +173,25 @@ class ResultManager:
         mae = mean_absolute_error(y_true, y_pred)
         r2 = r2_score(y_true, y_pred)
         
-        with np.errstate(divide='ignore', invalid='ignore'):
+        with np.errstate(divide="ignore", invalid="ignore"):
             mape = np.mean(np.abs((y_true - y_pred) / y_true)) * 100
             mape = 0.0 if np.isnan(mape) or np.isinf(mape) else mape
 
-        metrics = {'RMSE': [rmse], 'MAE': [mae], 'R2': [r2], 'MAPE': [mape]}
+        metrics = {"RMSE": [rmse], "MAE": [mae], "R2": [r2], "MAPE": [mape]}
         pd.DataFrame(metrics).to_csv(os.path.join(self.cfg.OUTPUT_DIR, "metrics.csv"), index=False)
         return metrics
 
     def plot_scatter(self, y_true, y_pred):
         plt.figure(figsize=(10, 8))
-        plt.scatter(y_true, y_pred, alpha=0.5, color='blue')
+        plt.scatter(y_true, y_pred, alpha=0.5, color="blue")
         
         min_val = min(np.min(y_true), np.min(y_pred))
         max_val = max(np.max(y_true), np.max(y_pred))
-        plt.plot([min_val, max_val], [min_val, max_val], 'r--', lw=2)
+        plt.plot([min_val, max_val], [min_val, max_val], "r--", lw=2)
         
-        plt.title('Prediction vs Real')
-        plt.xlabel('Real Values')
-        plt.ylabel('Predicted Values')
+        plt.title("Prediction vs Real")
+        plt.xlabel("Real Values")
+        plt.ylabel("Predicted Values")
         plt.grid(True)
         
         path = os.path.join(self.cfg.OUTPUT_DIR, "scatter_plot.png")
@@ -202,17 +202,17 @@ class ResultManager:
     def save_history(self, history):
         """Saves training history to CSV and plots."""
         hist_df = pd.DataFrame(history.history)
-        hist_df['epoch'] = history.epoch
+        hist_df["epoch"] = history.epoch
         csv_path = os.path.join(self.cfg.OUTPUT_DIR, "training_history.csv")
         hist_df.to_csv(csv_path, index=False)
         
         # Plot Loss
         plt.figure(figsize=(10, 6))
-        plt.plot(hist_df['epoch'], hist_df['loss'], label='Train Loss')
-        plt.plot(hist_df['epoch'], hist_df['val_loss'], label='Val Loss')
-        plt.title('Model Loss (MSE)')
-        plt.xlabel('Epoch')
-        plt.ylabel('Loss')
+        plt.plot(hist_df["epoch"], hist_df["loss"], label="Train Loss")
+        plt.plot(hist_df["epoch"], hist_df["val_loss"], label="Val Loss")
+        plt.title("Model Loss (MSE)")
+        plt.xlabel("Epoch")
+        plt.ylabel("Loss")
         plt.legend()
         plt.grid(True)
         plt.savefig(os.path.join(self.cfg.OUTPUT_DIR, "history_loss.png"))
@@ -223,7 +223,7 @@ class ResultManager:
     def save_monthly_metrics(self, y_true, y_pred, dates):
         """Calculates metrics for each month separately using hourly data, and saves to CSV."""
         # Create DataFrame with hourly data and datetime index
-        df = pd.DataFrame({'Real': y_true.flatten(), 'Predicted': y_pred.flatten()}, index=dates)
+        df = pd.DataFrame({"Real": y_true.flatten(), "Predicted": y_pred.flatten()}, index=dates)
         
         # Group by Year and Month
         grouped = df.groupby([df.index.year, df.index.month])
@@ -232,8 +232,8 @@ class ResultManager:
         
         for (year, month), group in grouped:
             # Extract hourly true and predicted values for this specific month
-            y_true_m = group['Real'].values
-            y_pred_m = group['Predicted'].values
+            y_true_m = group["Real"].values
+            y_pred_m = group["Predicted"].values
             
             # Skip if the group is empty (edge case)
             if len(y_true_m) == 0:
@@ -243,23 +243,23 @@ class ResultManager:
             rmse = np.sqrt(mean_squared_error(y_true_m, y_pred_m))
             mae = mean_absolute_error(y_true_m, y_pred_m)
             
-            # Handle edge cases where R2 might be undefined if there's no variance in y_true
+            # Handle edge cases where R2 might be undefined if there"s no variance in y_true
             if len(y_true_m) > 1:
                 r2 = r2_score(y_true_m, y_pred_m)
             else:
-                r2 = float('nan')
+                r2 = float("nan")
                 
             mape = mean_absolute_percentage_error(y_true_m, y_pred_m)
             
             # Append to our list
             monthly_metrics_list.append({
-                'Year': int(year),
-                'Month': int(month),
-                'Date_Label': f"{year}-{month:02d}", # Helper column for easy reading
-                'RMSE': float(rmse),
-                'MAE': float(mae),
-                'R2': float(r2),
-                'MAPE': float(mape)
+                "Year": int(year),
+                "Month": int(month),
+                "Date_Label": f"{year}-{month:02d}", # Helper column for easy reading
+                "RMSE": float(rmse),
+                "MAE": float(mae),
+                "R2": float(r2),
+                "MAPE": float(mape)
             })
         
         # Convert the list of dictionaries to a DataFrame
@@ -270,7 +270,7 @@ class ResultManager:
         metrics_df.to_csv(path, index=False)
         
         # Return the metrics as a dictionary for logging purposes
-        return metrics_df.to_dict(orient='records')
+        return metrics_df.to_dict(orient="records")
 
     def plot_hourly_by_month(self, y_true, y_pred, dates):
         """Generates and saves hourly real vs predicted line plots for each month."""
@@ -279,7 +279,7 @@ class ResultManager:
         os.makedirs(plot_dir, exist_ok=True)
         
         # Create DataFrame with the date index
-        df = pd.DataFrame({'Real': y_true.flatten(), 'Predicted': y_pred.flatten()}, index=dates)
+        df = pd.DataFrame({"Real": y_true.flatten(), "Predicted": y_pred.flatten()}, index=dates)
         
         # Group by Year and Month
         grouped = df.groupby([df.index.year, df.index.month])
@@ -288,15 +288,15 @@ class ResultManager:
             plt.figure(figsize=(15, 6))
             
             # Plot hourly data for the specific month
-            plt.plot(group.index, group['Real'], label='Real', alpha=0.8, color='#1f77b4', lw=1.5)
-            plt.plot(group.index, group['Predicted'], label='Predicted', alpha=0.8, color='#ff7f0e', linestyle='--', lw=1.5)
+            plt.plot(group.index, group["Real"], label="Real", alpha=0.8, color="#1f77b4", lw=1.5)
+            plt.plot(group.index, group["Predicted"], label="Predicted", alpha=0.8, color="#ff7f0e", linestyle="--", lw=1.5)
             
             month_str = f"{year}-{month:02d}"
-            plt.title(f'Hourly Generation: Real vs Predicted ({month_str})')
-            plt.xlabel('Date / Time')
-            plt.ylabel('Generation (MW)')
+            plt.title(f"Hourly Generation: Real vs Predicted ({month_str})")
+            plt.xlabel("Date / Time")
+            plt.ylabel("Generation (MW)")
             plt.legend()
-            plt.grid(True, linestyle='--', alpha=0.5)
+            plt.grid(True, linestyle="--", alpha=0.5)
             
             # Format X-axis for better readability
             plt.xticks(rotation=45)

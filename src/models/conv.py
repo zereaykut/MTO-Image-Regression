@@ -14,16 +14,16 @@ class ConvModel:
         """Defines the CNN architecture."""
         model = models.Sequential([
             layers.Input(shape=self.input_shape),
-            layers.Conv2D(32, 3, activation='relu'),
+            layers.Conv2D(32, 3, activation="relu"),
             layers.MaxPooling2D(pool_size=(2, 2)),    
-            layers.Conv2D(64, 3, activation='relu'),
+            layers.Conv2D(64, 3, activation="relu"),
             layers.MaxPooling2D(pool_size=(2, 2)),
-            layers.Conv2D(64, 3, activation='relu'),
+            layers.Conv2D(64, 3, activation="relu"),
             layers.Dropout(0.1),
             layers.Flatten(),
-            layers.Dense(64, activation='relu'),
+            layers.Dense(64, activation="relu"),
             layers.Dropout(0.1),
-            layers.Dense(1, activation='linear'),
+            layers.Dense(1, activation="linear"),
         ])
         return model
 
@@ -40,7 +40,7 @@ class ConvModel:
         self.model.compile(
             optimizer=optimizer_fn, 
             loss=loss_fn, 
-            metrics=['mae', 'mse']
+            metrics=["mae", "mse"]
         )
 
     def train(self, X_train, y_train, X_val, y_val, epochs=100, batch_size=32, callbacks=None, checkpoint_dir="../data/models"):
@@ -56,14 +56,14 @@ class ConvModel:
             
             callbacks = [
                 EarlyStopping(
-                    monitor='val_loss', 
+                    monitor="val_loss", 
                     patience=10, 
                     restore_best_weights=True,
                     verbose=1
                 ),
                 ModelCheckpoint(
                     filepath=checkpoint_path, 
-                    monitor='val_loss', 
+                    monitor="val_loss", 
                     save_best_only=True, 
                     save_weights_only=True,
                     verbose=1

@@ -41,7 +41,7 @@ def main():
         log_dir = os.path.join(cfg.LOG_DIR, datetime.now().strftime("%Y%m%d-%H%M%S"))
 
         callbacks_list = [
-            tf.keras.callbacks.EarlyStopping(monitor='val_loss', patience=10),
+            tf.keras.callbacks.EarlyStopping(monitor="val_loss", patience=10),
             tf.keras.callbacks.ModelCheckpoint(
                 filepath=checkpoint_path, 
                 monitor="val_loss", 

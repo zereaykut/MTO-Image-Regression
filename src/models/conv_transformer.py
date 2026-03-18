@@ -4,6 +4,48 @@ from tensorflow.keras import layers, models, optimizers, losses
 from tensorflow.keras.callbacks import EarlyStopping, ModelCheckpoint
 from src.utils import get_logger
 
+class StaticPatchWeighting(layers.Layer):
+    """
+    Applies a fixed, learnable weight to each patch position.
+    Good for prioritizing specific spatial regions.
+    """
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+    def build(self, input_shape):
+        # input_shape is expected to be (batch_size, seq_len, embed_dim)
+        seq_len = input_shape[1]
+        
+        # Create a trainable weight for each patch in the sequence
+        self.patch_weights = self.add_weight(
+            shape=(1, seq_len, 1), # Broadcasts across batch and embedding dimensions
+            initializer="ones",    # Start with a weight of 1.0 for all patches
+            trainable=True,
+            name="static_patch_weights"
+        )
+        super().build(input_shape)
+
+    def call(self, inputs):
+        return inputs * self.patch_weights
+
+
+class DynamicPatchWeighting(layers.Layer):
+    """
+    Calculates weights dynamically based on the patch's content.
+    Acts as a lightweight spatial attention mechanism.
+    """
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.attention_dense = layers.Dense(1, activation="sigmoid")
+
+    def call(self, inputs):
+        # Calculate a weight [0, 1] for each patch based on its features
+        # Shape becomes (batch_size, seq_len, 1)
+        weights = self.attention_dense(inputs)
+        
+        # Scale the original patches by their learned weights
+        return inputs * weights
+
 class PositionEmbedding(layers.Layer):
     def __init__(self, sequence_length, output_dim):
         super().__init__()
@@ -56,15 +98,21 @@ class ConvTransformerModel:
         inputs = layers.Input(shape=self.input_shape)
         
         # --- 1. CNN Stem ---
-        x = layers.Conv2D(32, 3, padding='same', activation='relu')(inputs)
+        x = layers.Conv2D(32, 3, padding="same", activation="relu")(inputs)
         x = layers.MaxPooling2D(pool_size=(2, 2))(x)
-        x = layers.Conv2D(64, 3, padding='same', activation='relu')(x)
+        x = layers.Conv2D(64, 3, padding="same", activation="relu")(x)
         x = layers.MaxPooling2D(pool_size=(2, 2))(x)
-        x = layers.Conv2D(64, 3, padding='same', activation='relu')(x)
+        x = layers.Conv2D(64, 3, padding="same", activation="relu")(x)
         
         # --- 2. Transformer Preparation with Position Embedding ---
         shape = x.shape
         x = layers.Reshape((-1, shape[-1]))(x) 
+
+        # Positional Embedding
+        # Option A: Static Learnable Weights (Location-based importance)
+        # x = StaticPatchWeighting()(x)
+        # Option B: Dynamic Weights (Content-based attention)
+        # x = DynamicPatchWeighting()(x)
         x = PositionEmbedding(sequence_length=2048, output_dim=64)(x)
 
         # --- 3. Transformer Encoder ---
@@ -76,8 +124,8 @@ class ConvTransformerModel:
         # This allows the final Dense layer to interpret explicit spatial locations, just like your CNN model does.
         x = layers.Flatten()(x)
         x = layers.Dropout(0.1)(x)
-        x = layers.Dense(64, activation='relu')(x)
-        outputs = layers.Dense(1, activation='linear')(x)
+        x = layers.Dense(64, activation="relu")(x)
+        outputs = layers.Dense(1, activation="linear")(x)
 
         return models.Model(inputs=inputs, outputs=outputs)
 
@@ -98,7 +146,7 @@ class ConvTransformerModel:
         self.model.compile(
             optimizer=optimizer_fn, 
             loss=losses.MeanSquaredError(), 
-            metrics=['mae', 'mse']
+            metrics=["mae", "mse"]
         )
 
     def train(self, X_train, y_train, X_val, y_val, epochs=100, batch_size=32, callbacks=None, checkpoint_dir="../data/models"):
@@ -114,14 +162,14 @@ class ConvTransformerModel:
             
             callbacks = [
                 EarlyStopping(
-                    monitor='val_loss', 
+                    monitor="val_loss", 
                     patience=10, 
                     restore_best_weights=True,
                     verbose=1
                 ),
                 ModelCheckpoint(
                     filepath=checkpoint_path, 
-                    monitor='val_loss', 
+                    monitor="val_loss", 
                     save_best_only=True, 
                     save_weights_only=True,
                     verbose=1
