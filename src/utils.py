@@ -58,6 +58,10 @@ class Config:
     LEARNING_RATE = 0.001
     WEIGHT_DECAY = 1e-4 # Added as per snippet
     
+    # Set to True to use the fast NumPy Channel-Wise scaling
+    # Set to False to use the original sklearn StandardScaler
+    USE_CHANNEL_WISE_SCALING = False
+    
     # Feature List
     PARAMS_LIST = [
         # "u1000hPa", "u950hPa", 
@@ -69,6 +73,7 @@ class Config:
         # "t950hPa_latitude_differentiate", "t950hPa_longitude_differentiate",
         "u10", "v10", "t2m",
         "ws10", "wd10",
+        "front_mask",
     ]
 
 # --- 3. Data Loading ---
@@ -126,32 +131,88 @@ class DataProcessor:
         X_test = X[len_train : len_train + len_test]
 
         self.logger.info(f"Split Complete. Train: {X_train.shape}, Val: {X_val.shape}, Test: {X_test.shape}")
-
         self.logger.info("Scaling features...")
-        
-        # 1. Reshape to (Samples * H * W, Features) to scale channel-wise
-        n_train, h, w, c = X_train.shape
-        X_train_reshaped = X_train.reshape(-1, c)
-        
-        # 2. Fit Scaler
-        scaler = StandardScaler()
-        X_train_scaled = scaler.fit_transform(X_train_reshaped)
-        
-        # 3. Transform Val and Test using the TRAIN scaler
-        X_val_scaled = scaler.transform(X_val.reshape(-1, c))
-        X_test_scaled = scaler.transform(X_test.reshape(-1, c))
-        
-        # 4. Reshape back to (Samples, H, W, C)
-        X_train = X_train_scaled.reshape(n_train, h, w, c)
-        X_val = X_val_scaled.reshape(X_val.shape[0], h, w, c)
-        X_test = X_test_scaled.reshape(X_test.shape[0], h, w, c)
+
+        # --- CONDITIONAL SCALING LOGIC ---
+        if getattr(self.cfg, "USE_CHANNEL_WISE_SCALING", False):
+            self.logger.info("Using NumPy Channel-Wise Standardization...")
+            
+            # 1. Calculate Mean and Std ONLY on the training data to prevent leakage.
+            # axis=(0, 1, 2) computes across Samples, Height, and Width, keeping channels separate.
+            channel_means = np.mean(X_train, axis=(0, 1, 2), keepdims=True)
+            channel_stds = np.std(X_train, axis=(0, 1, 2), keepdims=True)
+            
+            # Prevent division by zero
+            channel_stds[channel_stds == 0] = 1e-7
+            
+            # 2. Apply scaling to all datasets
+            X_train = (X_train - channel_means) / channel_stds
+            X_val = (X_val - channel_means) / channel_stds
+            
+            if len(X_test) > 0:
+                X_test = (X_test - channel_means) / channel_stds
+                
+        else:
+            self.logger.info("Using sklearn StandardScaler (Original Method)...")
+            
+            # 1. Reshape to (Samples * H * W, Features) to scale channel-wise
+            n_train, h, w, c = X_train.shape
+            X_train_reshaped = X_train.reshape(-1, c)
+            
+            # 2. Fit Scaler
+            scaler = StandardScaler()
+            X_train_scaled = scaler.fit_transform(X_train_reshaped)
+            
+            # 3. Transform Val and Test using the TRAIN scaler
+            X_val_scaled = scaler.transform(X_val.reshape(-1, c))
+            if len(X_test) > 0:
+                X_test_scaled = scaler.transform(X_test.reshape(-1, c))
+            
+            # 4. Reshape back to (Samples, H, W, C)
+            X_train = X_train_scaled.reshape(n_train, h, w, c)
+            X_val = X_val_scaled.reshape(X_val.shape[0], h, w, c)
+            if len(X_test) > 0:
+                X_test = X_test_scaled.reshape(X_test.shape[0], h, w, c)
         
         # OPTIONAL: Scale Targets (y) if values are large (e.g., > 100 MW)
         # y_scaler = StandardScaler()
         # y_train = y_scaler.fit_transform(y_train.reshape(-1, 1))
         # y_val = y_scaler.transform(y_val.reshape(-1, 1))
         # y_test = y_scaler.transform(y_test.reshape(-1, 1))
+        # OPTIONAL: Scale Targets (y)
         
+        # --- OPTIONAL: INJECT CYCLICAL TIME FEATURES ---
+        self.logger.info("Injecting cyclical time features...")
+        
+        def append_time_features(X_split, index_slice):
+            if len(X_split) == 0: return X_split
+            
+            # Create continuous cyclical variables
+            hours = index_slice.hour.values
+            months = index_slice.month.values
+            h_sin = np.sin(2 * np.pi * hours / 24.0)
+            h_cos = np.cos(2 * np.pi * hours / 24.0)
+            m_sin = np.sin(2 * np.pi * months / 12.0)
+            m_cos = np.cos(2 * np.pi * months / 12.0)
+            
+            # Stack into shape (Samples, 4)
+            time_feats = np.stack([h_sin, h_cos, m_sin, m_cos], axis=-1).astype(np.float32)
+            
+            # Broadcast to spatial grid: (Samples, H, W, 4)
+            _, H, W, _ = X_split.shape
+            time_grid = np.tile(time_feats[:, np.newaxis, np.newaxis, :], (1, H, W, 1))
+            
+            # Append to original features
+            return np.concatenate([X_split, time_grid], axis=-1)
+
+        X_train = append_time_features(X_train, train_index)
+        X_val = append_time_features(X_val, val_index)
+        if len(X_test) > 0:
+            X_test = append_time_features(X_test, test_index)
+            
+        self.logger.info(f"Final Input Shape (with time): Train {X_train.shape}")
+        # --- OPTIONAL: INJECT CYCLICAL TIME FEATURES ---
+
         return (X_train, y_train), (X_val, y_val), (X_test, y_test)
 
 # --- 5. Results & Metrics ---

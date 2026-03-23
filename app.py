@@ -4,7 +4,7 @@ import numpy as np
 import tensorflow as tf
 from datetime import datetime
 from src.utils import Config, DataLoader, DataProcessor, get_logger, ResultManager
-from src.models import ConvModel, ConvTransformerModel
+from src.models import ConvModel, ConvTransformerModel, ConvGATModel, ConvGCNModel, ConvGRNModel, ConvSpatialGNNModel
 
 def main():
     # 1. Setup
@@ -26,8 +26,14 @@ def main():
         input_shape = X_train.shape[1:] 
         logger.info(f"Initializing ConvModel with input shape: {input_shape}")
         
-        model_wrapper = ConvModel(input_shape=input_shape)
+        # MODELS
+        # model_wrapper = ConvModel(input_shape=input_shape)
         # model_wrapper = ConvTransformerModel(input_shape=input_shape)
+        # model_wrapper = ConvGATModel(input_shape=input_shape)
+        # model_wrapper = ConvGCNModel(input_shape=input_shape)
+        # model_wrapper = ConvGRNModel(input_shape=input_shape)
+        model_wrapper = ConvSpatialGNNModel(input_shape=input_shape)
+
         model_wrapper.model.summary(print_fn=logger.info)
         
         # Compile with weight decay
