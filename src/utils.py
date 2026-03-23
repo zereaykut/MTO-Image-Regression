@@ -121,6 +121,11 @@ class DataProcessor:
         y_val = df_targets["generation_mw"].loc[self.cfg.VAL_START:self.cfg.VAL_END].values.astype("float32")
         y_test = df_targets["generation_mw"].loc[self.cfg.TEST_START:self.cfg.TEST_END].values.astype("float32")
 
+        # Get chronological indices for time extraction (Comment it if commented -> OPTIONAL: INJECT CYCLICAL TIME FEATURES)
+        train_index = df_targets.loc[:self.cfg.TRAIN_END].index
+        val_index = df_targets.loc[self.cfg.VAL_START:self.cfg.VAL_END].index
+        test_index = df_targets.loc[self.cfg.TEST_START:self.cfg.TEST_END].index
+
         # 2. Split Features based on target lengths
         len_train = len(y_train)
         len_val = len(y_val)
@@ -133,54 +138,39 @@ class DataProcessor:
         self.logger.info(f"Split Complete. Train: {X_train.shape}, Val: {X_val.shape}, Test: {X_test.shape}")
         self.logger.info("Scaling features...")
 
-        # --- CONDITIONAL SCALING LOGIC ---
-        if getattr(self.cfg, "USE_CHANNEL_WISE_SCALING", False):
+        # 3. Scale Features
+        if getattr(self.cfg, 'USE_CHANNEL_WISE_SCALING', False):
             self.logger.info("Using NumPy Channel-Wise Standardization...")
-            
-            # 1. Calculate Mean and Std ONLY on the training data to prevent leakage.
-            # axis=(0, 1, 2) computes across Samples, Height, and Width, keeping channels separate.
             channel_means = np.mean(X_train, axis=(0, 1, 2), keepdims=True)
             channel_stds = np.std(X_train, axis=(0, 1, 2), keepdims=True)
-            
-            # Prevent division by zero
             channel_stds[channel_stds == 0] = 1e-7
             
-            # 2. Apply scaling to all datasets
             X_train = (X_train - channel_means) / channel_stds
             X_val = (X_val - channel_means) / channel_stds
-            
-            if len(X_test) > 0:
+            if len(X_test) > 0: 
                 X_test = (X_test - channel_means) / channel_stds
-                
         else:
             self.logger.info("Using sklearn StandardScaler (Original Method)...")
-            
-            # 1. Reshape to (Samples * H * W, Features) to scale channel-wise
             n_train, h, w, c = X_train.shape
             X_train_reshaped = X_train.reshape(-1, c)
-            
-            # 2. Fit Scaler
             scaler = StandardScaler()
             X_train_scaled = scaler.fit_transform(X_train_reshaped)
-            
-            # 3. Transform Val and Test using the TRAIN scaler
             X_val_scaled = scaler.transform(X_val.reshape(-1, c))
-            if len(X_test) > 0:
-                X_test_scaled = scaler.transform(X_test.reshape(-1, c))
             
-            # 4. Reshape back to (Samples, H, W, C)
             X_train = X_train_scaled.reshape(n_train, h, w, c)
             X_val = X_val_scaled.reshape(X_val.shape[0], h, w, c)
+            
             if len(X_test) > 0:
+                X_test_scaled = scaler.transform(X_test.reshape(-1, c))
                 X_test = X_test_scaled.reshape(X_test.shape[0], h, w, c)
-        
+
         # OPTIONAL: Scale Targets (y) if values are large (e.g., > 100 MW)
         # y_scaler = StandardScaler()
         # y_train = y_scaler.fit_transform(y_train.reshape(-1, 1))
         # y_val = y_scaler.transform(y_val.reshape(-1, 1))
         # y_test = y_scaler.transform(y_test.reshape(-1, 1))
         # OPTIONAL: Scale Targets (y)
-        
+
         # --- OPTIONAL: INJECT CYCLICAL TIME FEATURES ---
         self.logger.info("Injecting cyclical time features...")
         
@@ -205,6 +195,7 @@ class DataProcessor:
             # Append to original features
             return np.concatenate([X_split, time_grid], axis=-1)
 
+        # Apply the time feature injection using the exact datetime indices extracted above
         X_train = append_time_features(X_train, train_index)
         X_val = append_time_features(X_val, val_index)
         if len(X_test) > 0:
@@ -212,7 +203,7 @@ class DataProcessor:
             
         self.logger.info(f"Final Input Shape (with time): Train {X_train.shape}")
         # --- OPTIONAL: INJECT CYCLICAL TIME FEATURES ---
-
+        
         return (X_train, y_train), (X_val, y_val), (X_test, y_test)
 
 # --- 5. Results & Metrics ---
