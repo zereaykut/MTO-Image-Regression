@@ -64,16 +64,50 @@ class Config:
     
     # Feature List
     PARAMS_LIST = [
-        # "u1000hPa", "u950hPa", 
-        # "v1000hPa", "v950hPa", 
-        # "t1000hPa", "t950hPa", 
-        # "ws1000hPa", "ws950hPa",
-        # "wd1000hPa", "wd950hPa",
+        # --- Single Level ---
+        "u10", "v10", "t2m", 
+        "ws10", 
+        "wd10",
+        # "t2m_latitude_differentiate", "t2m_longitude_differentiate",
+        # "sin_wd10",
+        # "cos_wd10",
+
+        # --- 1000hPa ---
+        # "u1000hPa", "v1000hPa", "t1000hPa", 
+        # "ws1000hPa", 
+        # "wd1000hPa", 
         # "t1000hPa_latitude_differentiate", "t1000hPa_longitude_differentiate",
+        "wpd1000",
+        # "sin_wd1000hPa",
+        # "cos_wd1000hPa",
+        
+        # --- 950hPa ---
+        # "u950hPa", "v950hPa", "t950hPa", 
+        # "ws950hPa", "wd950hPa",
         # "t950hPa_latitude_differentiate", "t950hPa_longitude_differentiate",
-        "u10", "v10", "t2m",
-        "ws10", "wd10",
-        "front_mask",
+        # "sin_wd950hPa",
+        # "cos_wd950hPa",
+
+        # --- 850hPa ---
+        # "u850hPa", "v850hPa", "t850hPa",
+        "ws850hPa", 
+        "wd850hPa",
+        # "t850hPa_latitude_differentiate", "t850hPa_longitude_differentiate",
+        "wpd850",
+        # "sin_wd850hPa",
+        # "cos_wd850hPa",
+
+        # --- Kinematics & Thermodynamics (Extra) ---
+        # "shear",
+        # "div",
+        # "vort",
+        # "t_adv",
+        
+        "theta850",
+        "stability_1000_850",
+        # "deformation850",
+        # "frontogenesis850",
+        # "front_mask",
     ]
 
 # --- 3. Data Loading ---
@@ -85,7 +119,6 @@ class DataLoader:
     def load_features(self):
         X = []
         self.logger.info(f"Loading features from {self.cfg.MAIN_DATA_PATH}...")
-        
         for param in self.cfg.PARAMS_LIST:
             file_path = os.path.join(self.cfg.MAIN_DATA_PATH, f"{param}.npz")
             try:
@@ -95,8 +128,6 @@ class DataLoader:
             except Exception as e:
                 self.logger.error(f"Error loading {param}: {e}")
                 raise
-
-        # Stack: (Features, Samples, H, W) -> Transpose to (Samples, H, W, Features)
         X = np.stack(X, axis=1).transpose(0, 2, 3, 1)
         self.logger.info(f"Feature loading complete. Raw Shape: {X.shape}")
         return X
@@ -116,95 +147,55 @@ class DataProcessor:
         self.logger = get_logger()
 
     def split_data(self, X, df_targets):
-        # 1. Split Targets
         y_train = df_targets["generation_mw"].loc[:self.cfg.TRAIN_END].values.astype("float32")
         y_val = df_targets["generation_mw"].loc[self.cfg.VAL_START:self.cfg.VAL_END].values.astype("float32")
         y_test = df_targets["generation_mw"].loc[self.cfg.TEST_START:self.cfg.TEST_END].values.astype("float32")
 
-        # Get chronological indices for time extraction (Comment it if commented -> OPTIONAL: INJECT CYCLICAL TIME FEATURES)
         train_index = df_targets.loc[:self.cfg.TRAIN_END].index
         val_index = df_targets.loc[self.cfg.VAL_START:self.cfg.VAL_END].index
         test_index = df_targets.loc[self.cfg.TEST_START:self.cfg.TEST_END].index
 
-        # 2. Split Features based on target lengths
+        # ---> METADATA EXTRACTION FIX <---
+        def extract_meta(index, y_values):
+            hour_sin = np.sin(2 * np.pi * index.hour / 24.0)
+            hour_cos = np.cos(2 * np.pi * index.hour / 24.0)
+            month_sin = np.sin(2 * np.pi * index.month / 12.0)
+            month_cos = np.cos(2 * np.pi * index.month / 12.0)
+            prev_y = np.roll(y_values, shift=1)
+            if len(prev_y) > 0: prev_y[0] = prev_y[1] if len(prev_y) > 1 else 0
+            return np.stack([hour_sin, hour_cos, month_sin, month_cos, prev_y], axis=-1).astype(np.float32)
+
+        meta_train = extract_meta(train_index, y_train)
+        meta_val = extract_meta(val_index, y_val)
+        meta_test = extract_meta(test_index, y_test)
+
         len_train = len(y_train)
         len_val = len(y_val)
         len_test = len(y_test)
 
         X_train = X[:len_train]
-        X_val = X[len_train - len_val : len_train] # Overlap logic
+        X_val = X[len_train - len_val : len_train]
         X_test = X[len_train : len_train + len_test]
 
-        self.logger.info(f"Split Complete. Train: {X_train.shape}, Val: {X_val.shape}, Test: {X_test.shape}")
         self.logger.info("Scaling features...")
 
-        # 3. Scale Features
-        if getattr(self.cfg, 'USE_CHANNEL_WISE_SCALING', False):
-            self.logger.info("Using NumPy Channel-Wise Standardization...")
+        if getattr(self.cfg, "USE_CHANNEL_WISE_SCALING", False):
             channel_means = np.mean(X_train, axis=(0, 1, 2), keepdims=True)
             channel_stds = np.std(X_train, axis=(0, 1, 2), keepdims=True)
             channel_stds[channel_stds == 0] = 1e-7
-            
             X_train = (X_train - channel_means) / channel_stds
             X_val = (X_val - channel_means) / channel_stds
-            if len(X_test) > 0: 
+            if len(X_test) > 0:
                 X_test = (X_test - channel_means) / channel_stds
         else:
-            self.logger.info("Using sklearn StandardScaler (Original Method)...")
             n_train, h, w, c = X_train.shape
-            X_train_reshaped = X_train.reshape(-1, c)
             scaler = StandardScaler()
-            X_train_scaled = scaler.fit_transform(X_train_reshaped)
-            X_val_scaled = scaler.transform(X_val.reshape(-1, c))
-            
-            X_train = X_train_scaled.reshape(n_train, h, w, c)
-            X_val = X_val_scaled.reshape(X_val.shape[0], h, w, c)
-            
+            X_train = scaler.fit_transform(X_train.reshape(-1, c)).reshape(n_train, h, w, c)
+            X_val = scaler.transform(X_val.reshape(-1, c)).reshape(X_val.shape[0], h, w, c)
             if len(X_test) > 0:
-                X_test_scaled = scaler.transform(X_test.reshape(-1, c))
-                X_test = X_test_scaled.reshape(X_test.shape[0], h, w, c)
+                X_test = scaler.transform(X_test.reshape(-1, c)).reshape(X_test.shape[0], h, w, c)
 
-        # OPTIONAL: Scale Targets (y) if values are large (e.g., > 100 MW)
-        # y_scaler = StandardScaler()
-        # y_train = y_scaler.fit_transform(y_train.reshape(-1, 1))
-        # y_val = y_scaler.transform(y_val.reshape(-1, 1))
-        # y_test = y_scaler.transform(y_test.reshape(-1, 1))
-        # OPTIONAL: Scale Targets (y)
-
-        # --- OPTIONAL: INJECT CYCLICAL TIME FEATURES ---
-        self.logger.info("Injecting cyclical time features...")
-        
-        def append_time_features(X_split, index_slice):
-            if len(X_split) == 0: return X_split
-            
-            # Create continuous cyclical variables
-            hours = index_slice.hour.values
-            months = index_slice.month.values
-            h_sin = np.sin(2 * np.pi * hours / 24.0)
-            h_cos = np.cos(2 * np.pi * hours / 24.0)
-            m_sin = np.sin(2 * np.pi * months / 12.0)
-            m_cos = np.cos(2 * np.pi * months / 12.0)
-            
-            # Stack into shape (Samples, 4)
-            time_feats = np.stack([h_sin, h_cos, m_sin, m_cos], axis=-1).astype(np.float32)
-            
-            # Broadcast to spatial grid: (Samples, H, W, 4)
-            _, H, W, _ = X_split.shape
-            time_grid = np.tile(time_feats[:, np.newaxis, np.newaxis, :], (1, H, W, 1))
-            
-            # Append to original features
-            return np.concatenate([X_split, time_grid], axis=-1)
-
-        # Apply the time feature injection using the exact datetime indices extracted above
-        X_train = append_time_features(X_train, train_index)
-        X_val = append_time_features(X_val, val_index)
-        if len(X_test) > 0:
-            X_test = append_time_features(X_test, test_index)
-            
-        self.logger.info(f"Final Input Shape (with time): Train {X_train.shape}")
-        # --- OPTIONAL: INJECT CYCLICAL TIME FEATURES ---
-        
-        return (X_train, y_train), (X_val, y_val), (X_test, y_test)
+        return (X_train, meta_train, y_train), (X_val, meta_val, y_val), (X_test, meta_test, y_test)
 
 # --- 5. Results & Metrics ---
 class ResultManager:
